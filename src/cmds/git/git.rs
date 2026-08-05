@@ -12,6 +12,7 @@ use crate::core::utils::{
     exit_code_from_output, exit_code_from_status, join_with_overflow, resolved_command, strip_ansi,
 };
 use anyhow::{Context, Result};
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::process::Command;
 use std::process::Stdio;
@@ -821,6 +822,14 @@ fn filter_status_with_args(output: &str) -> String {
     }
 }
 
+fn ensure_trailing_newline(output: &str) -> Cow<'_, str> {
+    if output.is_empty() || output.ends_with('\n') {
+        Cow::Borrowed(output)
+    } else {
+        Cow::Owned(format!("{output}\n"))
+    }
+}
+
 fn run_status(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32> {
     let timer = tracking::TimedExecution::start();
 
@@ -849,14 +858,15 @@ fn run_status(args: &[String], verbose: u8, global_args: &[String]) -> Result<i3
 
         // Apply minimal filtering: strip ANSI, remove hints, empty lines
         let filtered = filter_status_with_args(&result.stdout);
-        let filtered = never_worse(&result.stdout, &filtered).to_string();
-        print!("{}", filtered);
+        let filtered = never_worse(&result.stdout, &filtered);
+        let emitted = ensure_trailing_newline(filtered);
+        print!("{}", emitted);
 
         timer.track(
             &format!("git status {}", args.join(" ")),
             &format!("rtk git status {}", args.join(" ")),
             &result.stdout,
-            &filtered,
+            &emitted,
         );
 
         return Ok(0);
@@ -2782,6 +2792,13 @@ no changes added to commit (use "git add" and/or "git commit -a")
         let output = "nothing to commit, working tree clean\n";
         let result = filter_status_with_args(output);
         assert!(result.contains("nothing to commit"));
+    }
+
+    #[test]
+    fn test_ensure_trailing_newline() {
+        assert_eq!(ensure_trailing_newline(""), "");
+        assert_eq!(ensure_trailing_newline("?? new.py"), "?? new.py\n");
+        assert_eq!(ensure_trailing_newline("?? new.py\n"), "?? new.py\n");
     }
 
     #[test]
