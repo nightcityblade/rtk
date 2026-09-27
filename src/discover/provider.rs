@@ -94,7 +94,19 @@ impl ClaudeProvider {
             // Apply project filter: substring match on directory name
             if let Some(filter) = project_filter {
                 let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if !dir_name.contains(filter) {
+                let drive_case_only = dir_name
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphabetic)
+                    && filter
+                        .as_bytes()
+                        .first()
+                        .is_some_and(u8::is_ascii_alphabetic)
+                    && dir_name.get(1..3) == Some("--")
+                    && filter.get(1..3) == Some("--")
+                    && dir_name[..1].eq_ignore_ascii_case(&filter[..1])
+                    && dir_name.get(1..) == filter.get(1..);
+                if !dir_name.contains(filter) && !drive_case_only {
                     continue;
                 }
             }
@@ -484,6 +496,23 @@ mod tests {
             sessions[0].file_name().and_then(|name| name.to_str()),
             Some("matching.jsonl")
         );
+    }
+
+    #[test]
+    fn test_discover_sessions_matches_windows_drive_case() {
+        let projects_dir = tempfile::tempdir().unwrap();
+        let project = projects_dir.path().join("c--dev-ESL-Integration");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("session.jsonl"), "").unwrap();
+
+        let sessions = ClaudeProvider::discover_sessions_in_projects_dir(
+            projects_dir.path(),
+            Some("C--dev-ESL-Integration"),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(sessions.len(), 1);
     }
 
     #[test]
